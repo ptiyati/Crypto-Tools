@@ -10,14 +10,16 @@ from cryptography.x509.oid import NameOID
 
 def my_fix_add_extension_cryptography(builder, extension, critical):
 	from cryptography.x509.extensions import Extension, ExtensionType
+
 	if not isinstance(extension, ExtensionType):
 		raise TypeError("extension must be an ExtensionType")
+
 	ext = Extension(extension.oid, critical, extension)
-	return CertificateBuilder(
+	return x509.CertificateBuilder(
 		builder._issuer_name, builder._subject_name,
 		builder._public_key, builder._serial_number, builder._not_valid_before,
-		builder._not_valid_after, builder._extensions + [extension]
-	), extension
+		builder._not_valid_after, builder._extensions + [ext]
+	)
 
 def reload_key(keypem):
 	return serialization.load_pem_private_key(
@@ -51,7 +53,7 @@ def write_output(txt, output=None):
 		with open(output,"wb") as f:
 			f.write(txt)
 
-def generate_rsa_key(bits):
+def generate_rsa_key(bits=2048):
 	key = rsa.generate_private_key(
 		public_exponent=65537,
 		key_size=bits,
@@ -115,31 +117,31 @@ def def_certificate_validity(builder, days):
 def sign_and_return_certificate(builder, pubkey, sign_key, issuer, subject, caflag=True):
 	builder = builder.serial_number(int(uuid.uuid4()))
 	builder = builder.public_key(pubkey.public_key())
-	print(builder._extensions)
-	buider = builder.add_extension(
+	builder = my_fix_add_extension_cryptography(
+		builder,
 		x509.BasicConstraints(
 			ca=caflag,
 			path_length=None
 		),
 		critical=True
 	)
-	print(builder._extensions)
-	buider = builder.add_extension(
+	builder = my_fix_add_extension_cryptography(
+		builder,
 		x509.SubjectKeyIdentifier(
-			x509.SubjectKeyIdentifier.from_public_key(pubkey.public_key())
+			x509.SubjectKeyIdentifier.from_public_key(pubkey.public_key()).digest
 		),
 		critical=False
 	)
-	print(builder._extensions)
-	buider = builder.add_extension(
+	builder = my_fix_add_extension_cryptography(
+		builder,
 		x509.AuthorityKeyIdentifier(
-			key_identifier=x509.SubjectKeyIdentifier.from_public_key(sign_key.public_key()),
+			key_identifier=x509.SubjectKeyIdentifier.from_public_key(sign_key.public_key()).digest,
 			authority_cert_issuer=None,
 			authority_cert_serial_number=None
 		),
 		critical=False
 	)
-	print(builder._extensions)
+	
 	certificate = None
 	try :
 		certificate = builder.sign(
@@ -147,7 +149,6 @@ def sign_and_return_certificate(builder, pubkey, sign_key, issuer, subject, cafl
 			algorithm=hashes.SHA256(),
 			backend=default_backend()
 		)
-	#except ValueError:
 	except ValueError:
 		certificate = builder.sign(
 			private_key=sign_key,
